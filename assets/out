@@ -1,4 +1,4 @@
-#!/usr/bin/env ash
+#!/usr/bin/env bash
 
 set -eu
 
@@ -14,21 +14,20 @@ payload=$(mktemp /tmp/resource-in.XXXXXX)
 
 cat > "${payload}" <&0
 
-webhook_url="$(jq -r '.source.url' < "${payload}")"
-build_status=$(jq -r '(.params.status // null)' < $payload)
+webhook_url="$(jq -r '.source.url' < ${payload})"
+build_status="$(jq -r '(.params.status // null)' < $payload)"
+message_file="$(jq -r '(.params.messageFile // "")' < $payload)"
 
 case "$build_status" in
   success)
     message_color='00FF00'
     message_summary="${BUILD_PIPELINE_NAME} - ${BUILD_JOB_NAME}"
     message_title="Build ${BUILD_PIPELINE_NAME} - ${BUILD_JOB_NAME} succeeded"
-    icon="https://cdnjs.cloudflare.com/ajax/libs/octicons/8.3.0/svg/check.svg"
     ;;
   failure)
     message_color='FF0000'
     message_summary="${BUILD_PIPELINE_NAME} - ${BUILD_JOB_NAME}"
     message_title="Build ${BUILD_PIPELINE_NAME} - ${BUILD_JOB_NAME} failed"
-    icon="https://cdnjs.cloudflare.com/ajax/libs/octicons/8.3.0/svg/x.svg"
     ;;
   *)
     exit 1
@@ -36,37 +35,43 @@ case "$build_status" in
 esac
 
 message_title_link="${ATC_EXTERNAL_URL}/teams/${BUILD_TEAM_NAME}/pipelines/${BUILD_PIPELINE_NAME}/jobs/${BUILD_JOB_NAME}/builds/${BUILD_NAME}"
-
-body="$(cat <<EOF
+base="$(cat <<EOF
 {
-	"@type": "MessageCard",
-	"@context": "https://schema.org/extensions",
-	"summary": "${message_summary}",
-	"themeColor": "${message_color}",
-	"title": "${message_title}",
-	"potentialAction": [
-		{
-			"@type": "OpenUri",
-			"name": "View in Concourse",
-			"targets": [
-				{
-					"os": "default",
-					"uri": "${message_title_link}"
-				}
-			]
-		}
-	]
+  "@type": "MessageCard",
+  "@context": "https://schema.org/extensions",
+  "summary": "${message_summary}",
+  "themeColor": "${message_color}",
+  "title": "${message_title}",
+  "potentialAction": []
 }
 EOF
 )"
 
-compact_body="$(echo "${body}" | jq -c '.')"
+default_action="$(cat <<EOF
+{
+  "@type": "OpenUri",
+  "name": "Build Logs",
+  "targets": [
+    {
+      "os": "default",
+      "uri": "${message_title_link}"
+    }
+  ]
+}
+EOF
+)"
+other_actions="{}"
+if [ -f "/tmp/build/put/${message_file}" ]; then
+  other_actions="$(cat /tmp/build/put/${message_file})"
+fi
+
+data="$(echo ${base} ${other_actions} | jq -sc '.[0] * .[1]' | jq -c ".potentialAction[.potentialAction | length] |= . + $(echo ${default_action} | jq -c '.')")"
 
 curl -X POST \
   "${webhook_url}" \
   -H 'Content-Type: application/json' \
   -H 'cache-control: no-cache' \
-  -d "${compact_body}"
+  -d "${data}"
 
 #
 # print the output

@@ -1,9 +1,4 @@
-FROM alpine:3.8
-
-LABEL maintener="Marcel Beck <marcel@beck.im>"
-
-RUN apk add --no-cache jq curl
-
+FROM alpine
+LABEL maintener="Oleksii Troian <trolleksii@gmail.com>"
+RUN apk update && apk add --no-cache bash jq curl && rm -rf /var/cache/apk
 COPY assets/ /opt/resource/
-
-RUN chmod +x /opt/resource/out /opt/resource/in /opt/resource/check
